@@ -12,9 +12,15 @@ readonly baseDirPath=$(realpath -e $SCRIPT_DIR_PATH/..)
 
 pushd $baseDirPath > /dev/null
 
+if [[ $# -ne 1 ]]; then 
+    echo >&2 "Usage: $0 v1"
+    echo >&2 '  where v1 is version tag'
+    exit 1
+fi
+
 git add .
 git commit -m 'WIP'
-git tag -a -m "WIP" "$@"
+git tag -a -m "WIP" "$1"
 git push --follow-tags
 
 popd > /dev/null
