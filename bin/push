@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+# Args: $version like `v1`, see https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action#commit-tag-and-push-your-action-to-github
+
+set -euo pipefail
+
+readonly SCRIPT_DIR_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_FILE_NAME="$(basename "$0")"
+readonly SCRIPT_FILE_PATH="$SCRIPT_DIR_PATH/$SCRIPT_FILE_NAME"
+
+readonly baseDirPath=$(realpath -e $SCRIPT_DIR_PATH/..)
+
+pushd $baseDirPath > /dev/null
+
+git add .
+git commit -m 'WIP'
+git tag -a -m "WIP" "$@"
+git push --follow-tags
+
+popd > /dev/null
