@@ -1,16 +1,350 @@
 "use strict";
-var core = require('@actions/core');
-var github = require('@actions/github');
-try {
-    // `who-to-greet` input defined in action metadata file
-    var nameToGreet = core.getInput('who-to-greet');
-    console.log("Hello " + nameToGreet + "!");
-    var time = (new Date()).toTimeString();
-    core.setOutput("time", time);
-    // Get the JSON webhook payload for the event that triggered the workflow
-    var payload = JSON.stringify(github.context.payload, undefined, 2);
-    console.log("The event payload: " + payload);
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+var __asyncValues = (this && this.__asyncValues) || function (o) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var m = o[Symbol.asyncIterator], i;
+    return m ? m.call(o) : (o = typeof __values === "function" ? __values(o) : o[Symbol.iterator](), i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i);
+    function verb(n) { i[n] = o[n] && function (v) { return new Promise(function (resolve, reject) { v = o[n](v), settle(resolve, reject, v.done, v.value); }); }; }
+    function settle(resolve, reject, d, v) { Promise.resolve(v).then(function(v) { resolve({ value: v, done: d }); }, reject); }
+};
+var __await = (this && this.__await) || function (v) { return this instanceof __await ? (this.v = v, this) : new __await(v); }
+var __asyncGenerator = (this && this.__asyncGenerator) || function (thisArg, _arguments, generator) {
+    if (!Symbol.asyncIterator) throw new TypeError("Symbol.asyncIterator is not defined.");
+    var g = generator.apply(thisArg, _arguments || []), i, q = [];
+    return i = {}, verb("next"), verb("throw"), verb("return"), i[Symbol.asyncIterator] = function () { return this; }, i;
+    function verb(n) { if (g[n]) i[n] = function (v) { return new Promise(function (a, b) { q.push([n, v, a, b]) > 1 || resume(n, v); }); }; }
+    function resume(n, v) { try { step(g[n](v)); } catch (e) { settle(q[0][3], e); } }
+    function step(r) { r.value instanceof __await ? Promise.resolve(r.value.v).then(fulfill, reject) : settle(q[0][2], r); }
+    function fulfill(value) { resume("next", value); }
+    function reject(value) { resume("throw", value); }
+    function settle(f, v) { if (f(v), q.shift(), q.length) resume(q[0][0], q[0][1]); }
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const core = __importStar(require("@actions/core"));
+const github = __importStar(require("@actions/github"));
+const fs = __importStar(require("fs"));
+const child_process_1 = require("child_process");
+const readline = __importStar(require("readline"));
+class ValObj {
+    constructor(val) {
+        this.val = val;
+    }
+    ;
 }
-catch (error) {
-    core.setFailed(error.message);
+class ChangelogHeaderTag extends ValObj {
 }
+class VerHeaderTag extends ChangelogHeaderTag {
+    static match(s) {
+        return s.match(/^#+\s+Version\s+v?(?<tag>[^\s]+)/i);
+    }
+    tag() {
+        return 'v' + this.val;
+    }
+}
+class WeeklyHeaderTag extends ChangelogHeaderTag {
+    static match(s) {
+        return s.match(/^##\s+Weekly\s+(?<tag>[^\s]+)/i);
+    }
+    tag() {
+        // ## Weekly 20200720 (2020-07-20 16:55:47 UTC)
+        return 'weekly-' + this.val;
+    }
+}
+function d(...args) {
+    for (const arg of args) {
+        console.log(arg);
+    }
+    const stack = new Error().stack;
+    if (stack) {
+        const chunks = stack.split(/^    at /mg).slice(2);
+        console.log("Backtrace:\n" + chunks.join('').replace(/^\s*/mg, '  '));
+    }
+    process.exit(0);
+}
+// Taken from TypeScript sources, https://github.com/microsoft/TypeScript
+function memoize(callback) {
+    let value;
+    return () => {
+        if (callback) {
+            value = callback();
+            callback = undefined;
+        }
+        return value;
+    };
+}
+class ShRes {
+    constructor(stdOut, stdErr, error) {
+        this.stdOut = stdOut;
+        this.stdErr = stdErr;
+        this.error = error;
+    }
+    *lines() {
+        for (let line of this.stdOut.split('\n')) {
+            line = line.trim();
+            if (line.length) {
+                yield line;
+            }
+        }
+    }
+}
+function shArg(arg) {
+    arg = String(arg).replace(/[^\\]'/g, function (m, i, s) {
+        return m.slice(0, 1) + '\\\'';
+    });
+    return "'" + arg + "'";
+}
+async function sh(cmd) {
+    //const promisifiedExec = util.promisify(exec);
+    // const {stdout, stderr} = await promisifiedExec(cmd);
+    return new Promise(function (resolve, reject) {
+        child_process_1.exec(cmd, function (error, stdOut, stdErr) {
+            if (error) {
+                reject(new ShRes(stdOut, stdErr, error));
+            }
+            else {
+                resolve(new ShRes(stdOut, stdErr));
+            }
+        });
+    });
+}
+function releaseIt() {
+    return __asyncGenerator(this, arguments, function* releaseIt_1() {
+        var e_1, _a;
+        // https://octokit.github.io/rest.js/v18
+        const client = githubClient();
+        try {
+            for (var _b = __asyncValues(client.paginate.iterator(client.repos.listReleases, Object.assign(github.context.repo, { per_page: conf().pageSize }))), _c; _c = yield __await(_b.next()), !_c.done;) {
+                const response = _c.value;
+                if (response.data) {
+                    for (const k in response.data) {
+                        yield yield __await(response.data[k]);
+                    }
+                }
+            }
+        }
+        catch (e_1_1) { e_1 = { error: e_1_1 }; }
+        finally {
+            try {
+                if (_c && !_c.done && (_a = _b.return)) yield __await(_a.call(_b));
+            }
+            finally { if (e_1) throw e_1.error; }
+        }
+    });
+}
+function githubClient() {
+    const client = memoize(function () {
+        const myToken = (core.getInput('myToken') || process.env.GITHUB_TOKEN);
+        const octokit = github.getOctokit(myToken);
+        return Object.assign(octokit, { repoMeta: github.context.repo });
+    });
+    return client();
+}
+function tagIt() {
+    return __asyncGenerator(this, arguments, function* tagIt_1() {
+        const res = yield __await(shInSrcDir('git for-each-ref --sort=creatordate --format \'%(refname) %(objectname) %(creatordate)\' refs/tags'));
+        const parseTagLine = (line) => {
+            const match = line.match(/refs\/tags\/(?<tag>[^\s]+)\s+(?<commit>[^\s]+)/);
+            if (!match) {
+                return false;
+            }
+            const tag = {
+                name: match.groups.tag,
+                commit: match.groups.commit,
+            };
+            return tag;
+        };
+        for (const line of res.lines()) {
+            const tag = parseTagLine(line);
+            if (!tag) {
+                continue;
+            }
+            yield yield __await(tag);
+        }
+    });
+}
+async function shInSrcDir(cmd) {
+    return sh('cd ' + shArg(conf().srcDirPath) + '; ' + cmd);
+}
+function conf() {
+    return {
+        changelogFilePath: process.cwd() + '/CHANGELOG.md',
+        srcDirPath: process.cwd(),
+        pageSize: 100,
+        debug: true,
+        ownerAndRepo: 'jackstr/seamly2d',
+    };
+}
+async function findTags() {
+    var e_2, _a;
+    async function processFileLines(filePath, fn) {
+        var e_3, _a;
+        const fileStream = fs.createReadStream(filePath);
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+        });
+        try {
+            // Note: we use the crlfDelay option to recognize all instances of CR LF
+            // ('\r\n') in input.txt as a single line break.
+            for (var rl_1 = __asyncValues(rl), rl_1_1; rl_1_1 = await rl_1.next(), !rl_1_1.done;) {
+                const line = rl_1_1.value;
+                let res = fn(line);
+                if (res !== undefined && res !== false) {
+                    return res;
+                }
+            }
+        }
+        catch (e_3_1) { e_3 = { error: e_3_1 }; }
+        finally {
+            try {
+                if (rl_1_1 && !rl_1_1.done && (_a = rl_1.return)) await _a.call(rl_1);
+            }
+            finally { if (e_3) throw e_3.error; }
+        }
+    }
+    // NB: Changelog file must exist
+    const tagFromFile = await processFileLines(conf().changelogFilePath, (line) => {
+        if (!line.length) {
+            return false;
+        }
+        // Old, legacy format
+        let match = VerHeaderTag.match(line);
+        if (match) {
+            return new VerHeaderTag(match.groups.tag);
+        }
+        match = WeeklyHeaderTag.match(line);
+        if (match) {
+            return new WeeklyHeaderTag(match.groups.tag);
+        }
+        return false;
+    });
+    const tags = [];
+    let latestTag = null;
+    try {
+        for (var _b = __asyncValues(tagIt()), _c; _c = await _b.next(), !_c.done;) {
+            const tag = _c.value;
+            if (!tagFromFile) {
+                latestTag = tag;
+            }
+            else if (tag.name === tagFromFile.tag() || tags.length) { // add tags when the first interesting tag was found.
+                tags.push(tag);
+            }
+        }
+    }
+    catch (e_2_1) { e_2 = { error: e_2_1 }; }
+    finally {
+        try {
+            if (_c && !_c.done && (_a = _b.return)) await _a.call(_b);
+        }
+        finally { if (e_2) throw e_2.error; }
+    }
+    if (!tagFromFile && latestTag) { // tag not found in the file use latest one from repo
+        tags.push(latestTag);
+    }
+    return tags;
+}
+async function findCommits(startTag, endTag) {
+    return (await shInSrcDir('git log --pretty=format:"%H" ' + shArg(startTag.name) + '..' + shArg(endTag.name))).lines();
+}
+async function findIssues(commits) {
+    const client = githubClient();
+    let issues = [];
+    if (conf().debug) {
+        issues = require(__dirname + '/issues.json').items;
+    }
+    else {
+        for (const sha1 of commits) {
+            const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
+            // https://api.github.com/search/issues?q=repo:jackstr/seamly2d $sha1 type:issue state:closed
+            const issuesRes = await client.request('GET /search/issues', {
+                q: q,
+            });
+            if (issuesRes.data.total_count) {
+                for (const issue of issuesRes.data.items) {
+                    issues.push(issue);
+                }
+            }
+        }
+    }
+    const havingLabels = (issue) => {
+        const allowedLabels = ['enhancement', 'bug', 'build'];
+        for (const label of issue.labels) {
+            if (!allowedLabels.includes(label.name)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return issues.filter(havingLabels);
+}
+async function preparePullReq() {
+    const tags = await findTags();
+    if (!tags.length) {
+        return false;
+    }
+    tags.push({ name: 'HEAD', commit: 'HEAD' });
+    const pullReq = [];
+    for (let i = 1; i < tags.length; i++) {
+        const tag = tags[i];
+        const startAndEndTags = [tags[i - 1], tags[i]];
+        const commits = await findCommits(startAndEndTags[0], startAndEndTags[1]);
+        const pullReqPart = {
+            tags: startAndEndTags,
+            issues: await findIssues(commits)
+        };
+        pullReq.push(pullReqPart);
+    }
+    return pullReq;
+}
+async function sendPullReq(pullReqText) {
+    //d(pullReqText);
+}
+function genPullReqText(pullReq) {
+    let pullReqText = '';
+    for (const pullReqPart of pullReq) {
+        const [startTag, endTag] = pullReqPart.tags;
+        // Ignore starting tag
+        pullReqText += '## ' + endTag.name + '\n\n';
+        pullReqText += 'foo\n\n';
+    }
+    return pullReqText.trimRight();
+}
+async function run() {
+    try {
+        const pullReq = await preparePullReq();
+        if (false !== pullReq) {
+            const pullReqText = genPullReqText(pullReq);
+            sendPullReq(pullReqText);
+        }
+    }
+    catch (error) {
+        if (conf().debug) {
+            console.log(error);
+        }
+        core.setFailed(error.message);
+    }
+}
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('Unhandled rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+run();
+//# sourceMappingURL=index.js.map
