@@ -410,6 +410,7 @@ async function main() {
         // todo
         core.info('DEBUG start');
         core.startGroup('DEBUG');
+        console.log(await sh('echo $SHELL; echo $PATH'));
         console.log(await sh('pwd && ls -alR && git tag -l && exit 1'));
         process.exit(2);
         core.endGroup();
