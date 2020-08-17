@@ -400,7 +400,7 @@ async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqF
         // Ignore starting tag
         pullReqText += (pullReqText.length ? "\n" : "") + '## ' + renderTagName(endTag.name, prevVer) + '\n\n'
         for (const issue of pullReqPart.issues) {
-            pullReqText += '* [#' + issue.number + '] ' + issue.title.trimEnd() + "\n";
+            pullReqText += '* [#' + issue.number + '](' + issue.html_url + ') ' + issue.title.trimEnd() + "\n";
         }
     }
     pullReq.text = pullReqText.trimEnd() + "\n";
