@@ -260,6 +260,7 @@ async function findTags() {
         }
         return false;
     };
+    core.info('Found tag in the Changelog: ' + tagFromFile.val);
     const tags = [];
     let latestTag = null;
     try {
@@ -429,15 +430,20 @@ async function renderPullReqText(pullReq) {
 }
 async function main() {
     try {
-        let pullReq = await preparePullReq();
-        if (false !== pullReq) {
-            core.info('Modifying the Changelog file');
-            pullReq = await renderPullReqText(pullReq);
-            changeChangelogFile(pullReq);
-        }
-        else {
-            core.info('Ignoring modification of the Changelog file');
-        }
+        // todo
+        await sh('pwd && ls -alR && git tag -l && exit 1');
+        process.exit(2);
+        /*
+        
+                let pullReq: PullReqForChangelog | false = await preparePullReq();
+                if (false !== pullReq) {
+                    core.info('Modifying the Changelog file');
+                    pullReq = await renderPullReqText(pullReq);
+                    changeChangelogFile(pullReq);
+                } else {
+                    core.info('Ignoring modification of the Changelog file');
+                }
+                */
     }
     catch (error) {
         if (conf().debug) {

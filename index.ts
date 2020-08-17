@@ -249,6 +249,8 @@ async function findTags(): Promise<Tag[]> {
         return false;
     };
 
+    core.info('Found tag in the Changelog: ' + tagFromFile.val);
+
     const tags: Tag[] = [];
     let latestTag = null;
     for await (const tag of tagIt()) {
@@ -405,6 +407,12 @@ async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqF
 
 async function main() {
     try {
+        // todo
+        await sh('pwd && ls -alR && git tag -l && exit 1');
+        process.exit(2);
+
+/*
+
         let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
             core.info('Modifying the Changelog file');
@@ -413,6 +421,7 @@ async function main() {
         } else {
             core.info('Ignoring modification of the Changelog file');
         }
+        */
     } catch (error) {
         if (conf().debug) {
             console.log(error);
