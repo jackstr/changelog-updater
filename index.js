@@ -431,8 +431,11 @@ async function renderPullReqText(pullReq) {
 async function main() {
     try {
         // todo
+        core.info('DEBUG start');
+        core.startGroup('DEBUG');
         console.log(await sh('pwd && ls -alR && git tag -l && exit 1'));
         process.exit(2);
+        core.endGroup();
         /*
         
                 let pullReq: PullReqForChangelog | false = await preparePullReq();
