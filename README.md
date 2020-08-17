@@ -14,7 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: jackstr/update-changelog@master
-      - uses: jackstr/create-pull-request@master
 ```
 
 Run the workflow:

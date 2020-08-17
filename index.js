@@ -293,10 +293,12 @@ async function findCommits(startTag, endTag) {
 }
 async function findIssues(commits) {
     let issues = [];
-    if (conf().debug) {
+    if (fs.existsSync(__dirname + '/issues.json')) { // used for testing
+        core.info('Using issues.json file');
         issues = require(__dirname + '/issues.json').items;
     }
     else {
+        core.info('Checking issues using REST API...');
         const client = githubClient();
         for (const sha1 of commits) {
             const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
@@ -310,6 +312,7 @@ async function findIssues(commits) {
                 }
             }
         }
+        core.info('Found issues: ' + issues.length);
     }
     const havingLabels = (issue) => {
         const allowedLabels = ['enhancement', 'bug', 'build'];
@@ -424,12 +427,16 @@ async function renderPullReqText(pullReq) {
     pullReq.text = pullReqText.trimEnd() + "\n";
     return pullReq;
 }
-async function run() {
+async function main() {
     try {
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
+            core.info('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
             changeChangelogFile(pullReq);
+        }
+        else {
+            core.info('Ignoring modification of the Changelog file');
         }
     }
     catch (error) {
@@ -439,9 +446,11 @@ async function run() {
         core.setFailed(error.message);
     }
 }
+/*
 process.on('unhandledRejection', (reason, promise) => {
     console.log('Unhandled rejection at:', promise, 'reason:', reason);
     process.exit(1);
 });
-run();
+*/
+main();
 //# sourceMappingURL=index.js.map
