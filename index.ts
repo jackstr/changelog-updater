@@ -249,7 +249,7 @@ async function findTags(): Promise<Tag[]> {
         return false;
     };
 
-    core.info('Found tag in the Changelog: ' + tagFromFile.val);
+    core.info('Found tag in the Changelog file: ' + tagFromFile.val);
 
     const tags: Tag[] = [];
     let latestTag = null;
@@ -265,6 +265,8 @@ async function findTags(): Promise<Tag[]> {
     if (!tagFromFile && latestTag) { // tag not found in the file use latest one from repo
         tags.push(latestTag);
     }
+
+    core.info('Found tags: ' + tags.length);
 
     return tags;
 }
@@ -407,6 +409,7 @@ async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqF
 
 async function main() {
     try {
+        await shInSrcDir('git fetch --tags');
         let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
             core.info('Modifying the Changelog file');

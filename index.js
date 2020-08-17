@@ -260,7 +260,7 @@ async function findTags() {
         }
         return false;
     };
-    core.info('Found tag in the Changelog: ' + tagFromFile.val);
+    core.info('Found tag in the Changelog file: ' + tagFromFile.val);
     const tags = [];
     let latestTag = null;
     try {
@@ -287,6 +287,7 @@ async function findTags() {
     if (!tagFromFile && latestTag) { // tag not found in the file use latest one from repo
         tags.push(latestTag);
     }
+    core.info('Found tags: ' + tags.length);
     return tags;
 }
 async function findCommits(startTag, endTag) {
@@ -430,6 +431,7 @@ async function renderPullReqText(pullReq) {
 }
 async function main() {
     try {
+        await shInSrcDir('git fetch --tags');
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
             core.info('Modifying the Changelog file');
