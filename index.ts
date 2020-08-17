@@ -407,20 +407,6 @@ async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqF
 
 async function main() {
     try {
-        const shD = async (cmd: string) => {
-            core.info(cmd);
-            console.log(await sh(cmd));
-        };
-        // todo
-        core.info('DEBUG start');
-        core.startGroup('DEBUG');
-        await shD('git fetch --tags');
-        await shD('git tag -l');
-        process.exit(2);
-        core.endGroup();
-
-/*
-
         let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
             core.info('Modifying the Changelog file');
@@ -429,7 +415,6 @@ async function main() {
         } else {
             core.info('Ignoring modification of the Changelog file');
         }
-        */
     } catch (error) {
         if (conf().debug) {
             console.log(error);
