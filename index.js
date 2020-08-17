@@ -431,7 +431,7 @@ async function renderPullReqText(pullReq) {
 async function main() {
     try {
         // todo
-        await sh('pwd && ls -alR && git tag -l && exit 1');
+        console.log(await sh('pwd && ls -alR && git tag -l && exit 1'));
         process.exit(2);
         /*
         
