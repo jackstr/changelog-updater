@@ -414,10 +414,7 @@ async function main() {
         // todo
         core.info('DEBUG start');
         core.startGroup('DEBUG');
-        await shD('echo $SHELL; echo $PATH');
-        await shD('which -a pwd; which -a ls; which -a git');
-        await shD('echo $BASH_VERSION; echo $PWD');
-        await shD('pwd && ls -alR && git tag -l');
+        await shD('git tag -l');
         process.exit(2);
         core.endGroup();
 
