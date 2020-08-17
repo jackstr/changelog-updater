@@ -151,8 +151,8 @@ async function* releaseIt() {
 
 function githubClient(): GitHubClient {
     const client = memoize<GitHubClient>(function () {
-        const myToken = <string>(core.getInput('myToken') || process.env.GITHUB_TOKEN);
-        const octokit = github.getOctokit(myToken);
+        const token = <string>(core.getInput('token') || process.env.GITHUB_TOKEN);
+        const octokit = github.getOctokit(token);
         return Object.assign(octokit, {repoMeta: github.context.repo});
     });
     return client();

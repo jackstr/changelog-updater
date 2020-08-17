@@ -158,8 +158,8 @@ function releaseIt() {
 }
 function githubClient() {
     const client = memoize(function () {
-        const myToken = (core.getInput('myToken') || process.env.GITHUB_TOKEN);
-        const octokit = github.getOctokit(myToken);
+        const token = (core.getInput('token') || process.env.GITHUB_TOKEN);
+        const octokit = github.getOctokit(token);
         return Object.assign(octokit, { repoMeta: github.context.repo });
     });
     return client();
