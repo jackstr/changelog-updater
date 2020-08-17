@@ -414,6 +414,7 @@ async function main() {
         // todo
         core.info('DEBUG start');
         core.startGroup('DEBUG');
+        await shD('git fetch --tags');
         await shD('git tag -l');
         process.exit(2);
         core.endGroup();
