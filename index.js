@@ -430,11 +430,17 @@ async function renderPullReqText(pullReq) {
 }
 async function main() {
     try {
+        const shD = async (cmd) => {
+            core.info(cmd);
+            console.log(await sh(cmd));
+        };
         // todo
         core.info('DEBUG start');
         core.startGroup('DEBUG');
-        console.log(await sh('echo $SHELL; echo $PATH'));
-        console.log(await sh('pwd && ls -alR && git tag -l && exit 1'));
+        await shD('echo $SHELL; echo $PATH');
+        await shD('which -a pwd; which -a ls; which -a git');
+        await shD('echo $BASH_VERSION; echo $PWD');
+        await shD('pwd && ls -alR && git tag -l');
         process.exit(2);
         core.endGroup();
         /*
