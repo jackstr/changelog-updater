@@ -7,6 +7,11 @@ import * as path from 'path';
 import {exec, ExecException} from "child_process";
 import {ReposListReleasesResponseData, SearchIssuesAndPullRequestsResponseData} from '@octokit/types'
 import * as readline from 'readline';
+import { promisify } from "util";
+import compareVersions from 'compare-versions';
+
+const writeFile = promisify(fs.writeFile);
+const readFile = promisify(fs.readFile);
 
 type Conf = {
     srcDirPath: Path
@@ -29,7 +34,7 @@ type PullReqForChangelogPart = {
     tags: [Tag, Tag]
     issues: Issue[]
 }
-type PullReqForChangelog = PullReqForChangelogPart[]
+type PullReqForChangelog = {parts: PullReqForChangelogPart[], text?: string}
 
 type Issue = SearchIssuesAndPullRequestsResponseData['items'][0];
 type Release = ReposListReleasesResponseData[0];
@@ -185,29 +190,28 @@ function conf(): Conf {
         changelogFilePath: process.cwd() + '/CHANGELOG.md',
         srcDirPath: process.cwd(),
         pageSize: 100,
-        debug: true,
+        debug: !process.env.GITHUB_ACTION,
         ownerAndRepo: 'jackstr/seamly2d',
     };
 }
 
-async function findTags(): Promise<Tag[]> {
-    async function processFileLines<TRes>(filePath: Path, fn: (s: string) => TRes): Promise<any> {
-        const fileStream = fs.createReadStream(filePath);
-        const rl = readline.createInterface({
-            input: fileStream,
-            crlfDelay: Infinity
-        });
-        // Note: we use the crlfDelay option to recognize all instances of CR LF
-        // ('\r\n') in input.txt as a single line break.
-        for await (const line of rl) {
-            let res = fn(line);
-            if (res !== undefined && <Exclude<undefined, any>>res !== false) {
-                return res;
-            }
+async function processFileLines<TRes>(filePath: Path, fn: (s: string) => TRes): Promise<any> {
+    const fileStream = fs.createReadStream(filePath);
+    const rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity
+    });
+    // Note: we use the crlfDelay option to recognize all instances of CR LF
+    // ('\r\n') in input.txt as a single line break.
+    for await (const line of rl) {
+        let res = fn(line);
+        if (res !== undefined && <Exclude<undefined, any>>res !== false) {
+            return res;
         }
     }
+}
 
-
+async function findTags(): Promise<Tag[]> {
     // NB: Changelog file must exist
     const tagFromFile = await processFileLines<false | ChangelogHeaderTag | undefined>(conf().changelogFilePath, (line) => {
         if (!line.length) {
@@ -227,12 +231,32 @@ async function findTags(): Promise<Tag[]> {
         return false;
     });
 
+    const useTag: (tag: Tag) => boolean = (tag: Tag) => {
+        if (tag.name === tagFromFile.tag()) {
+            return true;
+        }
+        if (tagFromFile instanceof VerHeaderTag) {
+            try {
+                return compareVersions.compare(tag.name, tagFromFile.tag(), '>=');
+            } catch (error) {
+                return false;
+            }
+        }
+        if (tagFromFile instanceof WeeklyHeaderTag && tag.name.match(/^weekly-\d+$/)) {
+            return tag.name >= tagFromFile.tag();
+        }
+
+        return false;
+    };
+
     const tags: Tag[] = [];
     let latestTag = null;
     for await (const tag of tagIt()) {
         if (!tagFromFile) {
             latestTag = tag;
-        } else if (tag.name === tagFromFile.tag() || tags.length) {  // add tags when the first interesting tag was found.
+        } else if (!tags.length && useTag(tag)) {  // add tags when the first interesting tag was found.
+            tags.push(tag);
+        } else if (tags.length) { // first tag found
             tags.push(tag);
         }
     }
@@ -247,12 +271,12 @@ async function findCommits(startTag: Tag, endTag: Tag) {
     return (await shInSrcDir('git log --pretty=format:"%H" ' + shArg(startTag.name) + '..' + shArg(endTag.name))).lines();
 }
 
-async function findIssues(commits: any) {
-    const client = githubClient();
+async function findIssues(commits: any): Promise<Issue[]> {
     let issues: Issue[] = [];
     if (conf().debug) {
         issues = require(__dirname + '/issues.json').items;
     } else {
+        const client = githubClient();
         for (const sha1 of commits) {
             const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
             // https://api.github.com/search/issues?q=repo:jackstr/seamly2d $sha1 type:issue state:closed
@@ -284,7 +308,7 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
         return false;
     }
     tags.push({name: 'HEAD', commit: 'HEAD'});
-    const pullReq: PullReqForChangelog = [];
+    const pullReqParts: PullReqForChangelogPart[] = [];
     for (let i = 1; i < tags.length; i++) {
         const tag = tags[i];
         const startAndEndTags: [Tag, Tag] = [tags[i - 1], tags[i]];
@@ -293,32 +317,95 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
             tags: startAndEndTags,
             issues: await findIssues(commits)
         }
-        pullReq.push(pullReqPart);
+        pullReqParts.push(pullReqPart);
     }
-    return pullReq;
+    return {
+        parts: pullReqParts.reverse()
+    }
 }
 
-async function sendPullReq(pullReqText: string) {
-    //d(pullReqText);
+async function changeChangelogFile(pullReq: PullReqForChangelog) {
+    const changelogFilePath = conf().changelogFilePath;
+    if (fs.existsSync(changelogFilePath)) {
+        const oldText = await readFile(changelogFilePath, 'utf8');
+        const newText = pullReq.text!.trim() + "\n\n" + oldText;
+        await writeFile(changelogFilePath, newText);
+    } else {
+        await writeFile(changelogFilePath, pullReq.text!.trim());
+    }
 }
 
-function genPullReqText(pullReq: PullReqForChangelog): string {
+function isVerTag(tagName: string): boolean {
+    return !!tagName.match(/^v\d+\.\d+\.\d+$/);
+}
+
+function isWeeklyTag(tagName: string): boolean {
+    return tagName.startsWith('weekly-');
+}
+
+async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqForChangelog> {
+    function incTagVersion(tagName: string): string {
+        const parts = tagName.split('.')
+        const lastPart = Number(parts.pop()) + 1;
+        parts.push(lastPart + '');
+        return parts.join('.');
+    }
+
+    function renderTagName(tagName: string, prevVer: string | null): string {
+        if (tagName === 'HEAD') {
+            return renderTagName(incTagVersion(<string>prevVer), null);
+        }
+        if (isVerTag(tagName)) {
+            return 'Version ' + tagName;
+        }
+        if (isWeeklyTag(tagName)) {
+            return 'Weekly ' + tagName.substr(tagName.indexOf('-') + 1)
+        }
+        return tagName;
+    }
+
+    async function findPrevVer() {
+        let prevVer = null;
+        for (const pullReqPart of pullReq.parts) {
+            const [startTag, endTag] = pullReqPart.tags;
+            if (isVerTag(startTag.name)) {
+                prevVer = startTag.name;
+                break;
+            }
+        }
+        if (null === prevVer) {
+            for await (const tag of tagIt()) {
+                if (isVerTag(tag.name)) {
+                    prevVer = tag.name;
+                }
+            }
+        }
+        if (null === prevVer) {
+            prevVer = 'v0.0.1';
+        }
+        return prevVer;
+    }
+
+    const prevVer = await findPrevVer();
     let pullReqText = '';
-    for (const pullReqPart of pullReq) {
+    for (const pullReqPart of pullReq.parts) {
         const [startTag, endTag] = pullReqPart.tags;
         // Ignore starting tag
-        pullReqText += '## ' + endTag.name + '\n\n'
-        pullReqText += 'foo\n\n';
+        pullReqText += (pullReqText.length ? "\n" : "") + '## ' + renderTagName(endTag.name, prevVer) + '\n\n'
+        for (const issue of pullReqPart.issues) {
+            pullReqText += '* [#' + issue.number + '] ' + issue.title.trimEnd() + "\n";
+        }
     }
-    return pullReqText.trimRight();
+    pullReq.text = pullReqText.trimEnd() + "\n";
+    return pullReq;
 }
 
 async function run() {
     try {
-        const pullReq: PullReqForChangelog | false = await preparePullReq();
+        let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
-            const pullReqText = genPullReqText(pullReq);
-            sendPullReq(pullReqText);
+            pullReq = await renderPullReqText(pullReq);
+            changeChangelogFile(pullReq);
         }
     } catch (error) {
         if (conf().debug) {

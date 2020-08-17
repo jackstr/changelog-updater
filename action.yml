@@ -1,5 +1,5 @@
-name: 'Changelog updater'
-description: 'Creates a pull request for the CHANGELOG.md file, containing missing in the file tags'
+name: Update Changelog file
+description: Creates a pull request for the CHANGELOG.md file, containing missing tags
 runs:
   using: 'node12'
   main: 'index.js'

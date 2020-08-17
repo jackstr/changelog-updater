@@ -15,7 +15,6 @@
     "@actions/github": "^4.0.0",
     "@octokit/action": "^3.0.5",
     "@types/semver": "^7.3.1",
-    "semver": "^7.3.2",
-    "version-compare": "^0.1.0"
+    "compare-versions": "^3.6.0"
   }
 }
