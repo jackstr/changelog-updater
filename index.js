@@ -265,7 +265,7 @@ async function findTags() {
         }
         return false;
     };
-    core.info('Found tag in the Changelog file: ' + tagFromFile.val);
+    core.debug('Found tag in the Changelog file: ' + tagFromFile.val);
     let tags = [];
     let latestTag = null;
     try {
@@ -293,7 +293,7 @@ async function findTags() {
         tags.push(latestTag);
     }
     tags = tags.filter(tagsFilter);
-    core.info('Found ' + tags.length + ' tags : [' + tags.map(tag => tag.name).join(', ') + ']');
+    core.debug('Found ' + tags.length + ' tags: [' + tags.map(tag => tag.name).join(', ') + ']');
     return tags;
 }
 async function findCommits(startTag, endTag) {
@@ -332,18 +332,8 @@ async function findIssues(commits) {
         }
     }
     issues = issues.filter(issuesFilter);
-    core.info('Found ' + issues.length + ' issues');
+    core.debug('Found ' + issues.length + ' issues: [' + issues.map(issue => issue.number).join(', ') + ']');
     return issues;
-}
-function toArr(it) {
-    if (Array.isArray(it)) {
-        return it;
-    }
-    const arr = [];
-    for (const v of it) {
-        arr.push(v);
-    }
-    return arr;
 }
 async function preparePullReq() {
     const tags = await findTags();
@@ -355,8 +345,8 @@ async function preparePullReq() {
     for (let i = 1; i < tags.length; i++) {
         const tag = tags[i];
         const startAndEndTags = [tags[i - 1], tags[i]];
-        const commits = await findCommits(startAndEndTags[0], startAndEndTags[1]);
-        core.info('Found ' + toArr(commits).length + ' commits');
+        const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
+        core.debug('Found ' + commits.length + ' commits: ' + commits.toString().replace(/,/g, ', '));
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
@@ -386,10 +376,11 @@ function isWeeklyTag(tagName) {
 }
 async function renderPullReqText(pullReq) {
     function incTagVersion(tagName) {
-        const parts = tagName.split('.');
-        const lastPart = Number(parts.pop()) + 1;
-        parts.push(lastPart + '');
-        return parts.join('.');
+        const match = tagName.match(/(?<before>.*\b)(?<ver>\d+)(?<after>\b.*)/);
+        if (match) {
+            return match.groups.before + (Number(match.groups.ver) + 1) + match.groups.after;
+        }
+        return tagName;
     }
     function renderTagName(tagName, prevVer) {
         if (tagName === 'HEAD') {
@@ -439,13 +430,14 @@ async function renderPullReqText(pullReq) {
     let pullReqText = '';
     for (const pullReqPart of pullReq.parts) {
         const [startTag, endTag] = pullReqPart.tags;
-        // Ignore starting tag
-        pullReqText += (pullReqText.length ? "\n" : "") + '## ' + renderTagName(endTag.name, prevVer) + '\n\n';
-        for (const issue of pullReqPart.issues) {
-            pullReqText += '* [#' + issue.number + '](' + issue.html_url + ') ' + issue.title.trimEnd() + "\n";
+        if (pullReqPart.issues.length) {
+            pullReqText += (pullReqText.length ? "\n" : "") + '## ' + renderTagName(endTag.name, prevVer) + '\n\n';
+            for (const issue of pullReqPart.issues) {
+                pullReqText += '* [#' + issue.number + '](' + issue.html_url + ') ' + issue.title.trimEnd() + "\n";
+            }
         }
     }
-    pullReq.text = pullReqText.trimEnd() + "\n";
+    pullReq.text = pullReqText.length ? pullReqText.trimEnd() + "\n" : '';
     return pullReq;
 }
 async function main() {
@@ -454,12 +446,12 @@ async function main() {
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
             //            d(pullReq.parts.map(pullReqPart => pullReqPart.issues.map(issue => d(issue))))
-            core.info('Modifying the Changelog file');
+            core.debug('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
-            updateChangelogFile(pullReq);
+            //updateChangelogFile(pullReq);
         }
         else {
-            core.info('Ignoring modification of the Changelog file');
+            core.debug('Ignoring modification of the Changelog file');
         }
     }
     catch (error) {
