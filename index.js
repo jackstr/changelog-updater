@@ -445,10 +445,9 @@ async function main() {
         await shInSrcDir('git fetch --tags');
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
-            //            d(pullReq.parts.map(pullReqPart => pullReqPart.issues.map(issue => d(issue))))
             core.debug('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
-            //updateChangelogFile(pullReq);
+            updateChangelogFile(pullReq);
         }
         else {
             core.debug('Ignoring modification of the Changelog file');
