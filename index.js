@@ -319,7 +319,7 @@ async function findIssues(commits) {
     else {
         const client = githubClient();
         for (const sha1 of commits) {
-            const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
+            const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} state:closed`;
             // https://api.github.com/search/issues?q=repo:jackstr/seamly2d $sha1 type:issue state:closed
             core.info('Search issues query: ' + q);
             const issuesRes = await client.request('GET /search/issues', {
@@ -347,7 +347,7 @@ async function preparePullReq() {
         const tag = tags[i];
         const startAndEndTags = [tags[i - 1], tags[i]];
         const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
-        core.info('Found ' + commits.length + ' commit(s) between ' + startAndEndTags[0].name + '..' + startAndEndTags[1].name + ': ' + commits.toString().replace(/,/g, ', '));
+        core.info('Found ' + commits.length + ' commit(s) from ' + startAndEndTags[0].name + '..' + startAndEndTags[1].name + ': [' + commits.toString().replace(/,/g, ', ') + ']');
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
