@@ -293,7 +293,7 @@ async function findTags() {
         tags.push(latestTag);
     }
     tags = tags.filter(tagsFilter);
-    core.info('Found ' + tags.length + ' tags: [' + tags.map(tag => tag.name).join(', ') + ']');
+    core.info('Found ' + tags.length + ' tag(s): [' + tags.map(tag => tag.name).join(', ') + ']');
     return tags;
 }
 async function findCommits(startTag, endTag) {
@@ -332,7 +332,7 @@ async function findIssues(commits) {
         }
     }
     issues = issues.filter(issuesFilter);
-    core.info('Found ' + issues.length + ' issues: [' + issues.map(issue => issue.number).join(', ') + ']');
+    core.info('Found ' + issues.length + ' issue(s): [' + issues.map(issue => issue.number).join(', ') + ']');
     return issues;
 }
 async function preparePullReq() {
@@ -346,7 +346,7 @@ async function preparePullReq() {
         const tag = tags[i];
         const startAndEndTags = [tags[i - 1], tags[i]];
         const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
-        core.info('Found ' + commits.length + ' commits: ' + commits.toString().replace(/,/g, ', '));
+        core.info('Found ' + commits.length + ' commit(s): ' + commits.toString().replace(/,/g, ', '));
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
