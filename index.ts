@@ -186,9 +186,10 @@ async function shInSrcDir(cmd: string): Promise<ShRes> {
 }
 
 function conf(): Conf {
+    const changelogFilePath = process.cwd() + '/CHANGELOG.md';
     return {
-        changelogFilePath: process.cwd() + '/CHANGELOG.md',
-        srcDirPath: process.cwd(),
+        changelogFilePath: changelogFilePath,
+        srcDirPath: path.dirname(changelogFilePath),
         pageSize: 100,
         debug: !process.env.GITHUB_ACTION,
         ownerAndRepo: 'jackstr/seamly2d',
@@ -209,6 +210,10 @@ async function processFileLines<TRes>(filePath: Path, fn: (s: string) => TRes): 
             return res;
         }
     }
+}
+
+function tagsFilter(tag: Tag): boolean {
+    return (isVerTag(tag.name) || isWeeklyTag(tag.name)) && !tag.name.match(/\btest\b/);
 }
 
 async function findTags(): Promise<Tag[]> {
@@ -251,7 +256,7 @@ async function findTags(): Promise<Tag[]> {
 
     core.info('Found tag in the Changelog file: ' + tagFromFile.val);
 
-    const tags: Tag[] = [];
+    let tags: Tag[] = [];
     let latestTag = null;
     for await (const tag of tagIt()) {
         if (!tagFromFile) {
@@ -266,7 +271,9 @@ async function findTags(): Promise<Tag[]> {
         tags.push(latestTag);
     }
 
-    core.info('Found tags: ' + tags.length);
+    tags = tags.filter(tagsFilter);
+
+    core.info('Found ' + tags.length + ' tags : [' + tags.map(tag => tag.name).join(', ') + ']')
 
     return tags;
 }
@@ -275,13 +282,24 @@ async function findCommits(startTag: Tag, endTag: Tag) {
     return (await shInSrcDir('git log --pretty=format:"%H" ' + shArg(startTag.name) + '..' + shArg(endTag.name))).lines();
 }
 
+function issuesFilter(issue: Issue): boolean {
+    const havingLabels = (issue: Issue) => {
+        const allowedLabels = ['enhancement', 'bug', 'build'];
+        for (const label of issue.labels) {
+            if (!allowedLabels.includes(label.name)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return havingLabels(issue);
+}
+
 async function findIssues(commits: any): Promise<Issue[]> {
     let issues: Issue[] = [];
     if (fs.existsSync(__dirname + '/issues.json')) { // used for testing
-        core.info('Using issues.json file');
         issues = require(__dirname + '/issues.json').items;
     } else {
-        core.info('Checking issues using REST API...');
         const client = githubClient();
         for (const sha1 of commits) {
             const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
@@ -295,18 +313,24 @@ async function findIssues(commits: any): Promise<Issue[]> {
                 }
             }
         }
-        core.info('Found issues: ' + issues.length);
     }
-    const havingLabels = (issue: Issue) => {
-        const allowedLabels = ['enhancement', 'bug', 'build'];
-        for (const label of issue.labels) {
-            if (!allowedLabels.includes(label.name)) {
-                return false;
-            }
-        }
-        return true;
-    };
-    return issues.filter(havingLabels);
+
+    issues = issues.filter(issuesFilter);
+
+    core.info('Found ' + issues.length + ' issues');
+
+    return issues;
+}
+
+function toArr<T>(it: Iterable<T>): T[] {
+    if (Array.isArray(it)) {
+        return it;
+    }
+    const arr: T[] = [];
+    for (const v of it) {
+        arr.push(v);
+    }
+    return arr;
 }
 
 async function preparePullReq(): Promise<PullReqForChangelog | false> {
@@ -320,6 +344,7 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
         const tag = tags[i];
         const startAndEndTags: [Tag, Tag] = [tags[i - 1], tags[i]];
         const commits = await findCommits(startAndEndTags[0], startAndEndTags[1]);
+        core.info('Found ' +  toArr(commits).length + ' commits');
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
@@ -331,7 +356,7 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
     }
 }
 
-async function changeChangelogFile(pullReq: PullReqForChangelog) {
+async function updateChangelogFile(pullReq: PullReqForChangelog) {
     const changelogFilePath = conf().changelogFilePath;
     if (fs.existsSync(changelogFilePath)) {
         const oldText = await readFile(changelogFilePath, 'utf8');
@@ -343,7 +368,7 @@ async function changeChangelogFile(pullReq: PullReqForChangelog) {
 }
 
 function isVerTag(tagName: string): boolean {
-    return !!tagName.match(/^v\d+\.\d+\.\d+$/);
+    return !!tagName.match(/^v\d+\.\d+\.\d+/);
 }
 
 function isWeeklyTag(tagName: string): boolean {
@@ -412,9 +437,10 @@ async function main() {
         await shInSrcDir('git fetch --tags');
         let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
+//            d(pullReq.parts.map(pullReqPart => pullReqPart.issues.map(issue => d(issue))))
             core.info('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
-            changeChangelogFile(pullReq);
+            updateChangelogFile(pullReq);
         } else {
             core.info('Ignoring modification of the Changelog file');
         }

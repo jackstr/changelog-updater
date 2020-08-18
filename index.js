@@ -44,6 +44,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const core = __importStar(require("@actions/core"));
 const github = __importStar(require("@actions/github"));
 const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
 const child_process_1 = require("child_process");
 const readline = __importStar(require("readline"));
 const util_1 = require("util");
@@ -191,9 +192,10 @@ async function shInSrcDir(cmd) {
     return sh('cd ' + shArg(conf().srcDirPath) + '; ' + cmd);
 }
 function conf() {
+    const changelogFilePath = process.cwd() + '/CHANGELOG.md';
     return {
-        changelogFilePath: process.cwd() + '/CHANGELOG.md',
-        srcDirPath: process.cwd(),
+        changelogFilePath: changelogFilePath,
+        srcDirPath: path.dirname(changelogFilePath),
         pageSize: 100,
         debug: !process.env.GITHUB_ACTION,
         ownerAndRepo: 'jackstr/seamly2d',
@@ -224,6 +226,9 @@ async function processFileLines(filePath, fn) {
         }
         finally { if (e_2) throw e_2.error; }
     }
+}
+function tagsFilter(tag) {
+    return (isVerTag(tag.name) || isWeeklyTag(tag.name)) && !tag.name.match(/\btest\b/);
 }
 async function findTags() {
     var e_3, _a;
@@ -261,7 +266,7 @@ async function findTags() {
         return false;
     };
     core.info('Found tag in the Changelog file: ' + tagFromFile.val);
-    const tags = [];
+    let tags = [];
     let latestTag = null;
     try {
         for (var _b = __asyncValues(tagIt()), _c; _c = await _b.next(), !_c.done;) {
@@ -287,20 +292,31 @@ async function findTags() {
     if (!tagFromFile && latestTag) { // tag not found in the file use latest one from repo
         tags.push(latestTag);
     }
-    core.info('Found tags: ' + tags.length);
+    tags = tags.filter(tagsFilter);
+    core.info('Found ' + tags.length + ' tags : [' + tags.map(tag => tag.name).join(', ') + ']');
     return tags;
 }
 async function findCommits(startTag, endTag) {
     return (await shInSrcDir('git log --pretty=format:"%H" ' + shArg(startTag.name) + '..' + shArg(endTag.name))).lines();
 }
+function issuesFilter(issue) {
+    const havingLabels = (issue) => {
+        const allowedLabels = ['enhancement', 'bug', 'build'];
+        for (const label of issue.labels) {
+            if (!allowedLabels.includes(label.name)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return havingLabels(issue);
+}
 async function findIssues(commits) {
     let issues = [];
     if (fs.existsSync(__dirname + '/issues.json')) { // used for testing
-        core.info('Using issues.json file');
         issues = require(__dirname + '/issues.json').items;
     }
     else {
-        core.info('Checking issues using REST API...');
         const client = githubClient();
         for (const sha1 of commits) {
             const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} type:issue state:closed`;
@@ -314,18 +330,20 @@ async function findIssues(commits) {
                 }
             }
         }
-        core.info('Found issues: ' + issues.length);
     }
-    const havingLabels = (issue) => {
-        const allowedLabels = ['enhancement', 'bug', 'build'];
-        for (const label of issue.labels) {
-            if (!allowedLabels.includes(label.name)) {
-                return false;
-            }
-        }
-        return true;
-    };
-    return issues.filter(havingLabels);
+    issues = issues.filter(issuesFilter);
+    core.info('Found ' + issues.length + ' issues');
+    return issues;
+}
+function toArr(it) {
+    if (Array.isArray(it)) {
+        return it;
+    }
+    const arr = [];
+    for (const v of it) {
+        arr.push(v);
+    }
+    return arr;
 }
 async function preparePullReq() {
     const tags = await findTags();
@@ -338,6 +356,7 @@ async function preparePullReq() {
         const tag = tags[i];
         const startAndEndTags = [tags[i - 1], tags[i]];
         const commits = await findCommits(startAndEndTags[0], startAndEndTags[1]);
+        core.info('Found ' + toArr(commits).length + ' commits');
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
@@ -348,7 +367,7 @@ async function preparePullReq() {
         parts: pullReqParts.reverse()
     };
 }
-async function changeChangelogFile(pullReq) {
+async function updateChangelogFile(pullReq) {
     const changelogFilePath = conf().changelogFilePath;
     if (fs.existsSync(changelogFilePath)) {
         const oldText = await readFile(changelogFilePath, 'utf8');
@@ -360,7 +379,7 @@ async function changeChangelogFile(pullReq) {
     }
 }
 function isVerTag(tagName) {
-    return !!tagName.match(/^v\d+\.\d+\.\d+$/);
+    return !!tagName.match(/^v\d+\.\d+\.\d+/);
 }
 function isWeeklyTag(tagName) {
     return tagName.startsWith('weekly-');
@@ -434,9 +453,10 @@ async function main() {
         await shInSrcDir('git fetch --tags');
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
+            //            d(pullReq.parts.map(pullReqPart => pullReqPart.issues.map(issue => d(issue))))
             core.info('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
-            changeChangelogFile(pullReq);
+            updateChangelogFile(pullReq);
         }
         else {
             core.info('Ignoring modification of the Changelog file');
