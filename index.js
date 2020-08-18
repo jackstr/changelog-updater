@@ -265,7 +265,7 @@ async function findTags() {
         }
         return false;
     };
-    core.debug('Found tag in the Changelog file: ' + tagFromFile.val);
+    core.info('Found tag in the Changelog file: ' + tagFromFile.val);
     let tags = [];
     let latestTag = null;
     try {
@@ -293,7 +293,7 @@ async function findTags() {
         tags.push(latestTag);
     }
     tags = tags.filter(tagsFilter);
-    core.debug('Found ' + tags.length + ' tags: [' + tags.map(tag => tag.name).join(', ') + ']');
+    core.info('Found ' + tags.length + ' tags: [' + tags.map(tag => tag.name).join(', ') + ']');
     return tags;
 }
 async function findCommits(startTag, endTag) {
@@ -332,7 +332,7 @@ async function findIssues(commits) {
         }
     }
     issues = issues.filter(issuesFilter);
-    core.debug('Found ' + issues.length + ' issues: [' + issues.map(issue => issue.number).join(', ') + ']');
+    core.info('Found ' + issues.length + ' issues: [' + issues.map(issue => issue.number).join(', ') + ']');
     return issues;
 }
 async function preparePullReq() {
@@ -346,7 +346,7 @@ async function preparePullReq() {
         const tag = tags[i];
         const startAndEndTags = [tags[i - 1], tags[i]];
         const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
-        core.debug('Found ' + commits.length + ' commits: ' + commits.toString().replace(/,/g, ', '));
+        core.info('Found ' + commits.length + ' commits: ' + commits.toString().replace(/,/g, ', '));
         const pullReqPart = {
             tags: startAndEndTags,
             issues: await findIssues(commits)
@@ -359,13 +359,19 @@ async function preparePullReq() {
 }
 async function updateChangelogFile(pullReq) {
     const changelogFilePath = conf().changelogFilePath;
+    let newText = '';
     if (fs.existsSync(changelogFilePath)) {
         const oldText = await readFile(changelogFilePath, 'utf8');
-        const newText = pullReq.text.trim() + "\n\n" + oldText;
-        await writeFile(changelogFilePath, newText);
+        let newText = pullReq.text.trim();
+        if (newText.length) {
+            newText + "\n\n" + oldText;
+        }
     }
     else {
-        await writeFile(changelogFilePath, pullReq.text.trim());
+        newText = pullReq.text.trim();
+    }
+    if (newText.length) {
+        await writeFile(changelogFilePath, newText);
     }
 }
 function isVerTag(tagName) {
@@ -445,12 +451,12 @@ async function main() {
         await shInSrcDir('git fetch --tags');
         let pullReq = await preparePullReq();
         if (false !== pullReq) {
-            core.debug('Modifying the Changelog file');
+            core.info('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
             updateChangelogFile(pullReq);
         }
         else {
-            core.debug('Ignoring modification of the Changelog file');
+            core.info('Ignoring modification of the Changelog file');
         }
     }
     catch (error) {
