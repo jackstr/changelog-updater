@@ -1,14 +1,16 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github';
 import {RequestError} from '@octokit/request-error';
+
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {exec, ExecException} from "child_process";
 import {ReposListReleasesResponseData, SearchIssuesAndPullRequestsResponseData} from '@octokit/types'
 import * as readline from 'readline';
-import { promisify } from "util";
+import { promisify, inspect } from "util";
 import compareVersions from 'compare-versions';
+import moment from 'moment';
 
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
@@ -19,6 +21,7 @@ type Conf = {
     pageSize: number
     debug: boolean
     ownerAndRepo: string
+    token: string
 }
 
 type Path = string;
@@ -27,7 +30,8 @@ type Sha1 = string;
 type Tag = {
     name: string
     commit: Sha1
-    commits?: Sha1[]
+    dateTime: string
+    //commits?: Sha1[]
 };
 
 type PullReqForChangelogPart = {
@@ -71,7 +75,7 @@ class WeeklyHeaderTag extends ChangelogHeaderTag {
     }
 }
 
-function d(...args: any): any {
+function d(...args: any): never {
     for (const arg of args) {
         console.log(arg);
     }
@@ -151,7 +155,7 @@ async function* releaseIt() {
 
 function githubClient(): GitHubClient {
     const client = memoize<GitHubClient>(function () {
-        const token = <string>(core.getInput('token') || process.env.GITHUB_TOKEN);
+        const token = conf().token;
         const octokit = github.getOctokit(token);
         return Object.assign(octokit, {repoMeta: github.context.repo});
     });
@@ -160,24 +164,21 @@ function githubClient(): GitHubClient {
 
 async function* tagIt() {
     const res = await shInSrcDir('git for-each-ref --sort=creatordate --format \'%(refname) %(objectname) %(creatordate)\' refs/tags');
-    const parseTagLine = (line: string): Tag | false => {
-        const match = line.match(/refs\/tags\/(?<tag>[^\s]+)\s+(?<commit>[^\s]+)/)
-        if (!match) {
-            return false;
-        }
-        const tag = {
-            name: match.groups!.tag,
-            commit: match.groups!.commit,
-        };
 
-        return tag;
-    };
     for (const line of res.lines()) {
-        const tag = parseTagLine(line);
-        if (!tag) {
-            continue;
+        const chunks = line.split(/\s+/)
+        const [tagRef, commit, dayOfWeek, month, dayOfMonth, time, year, tzOffset] = chunks
+        const dateTime_ = dayOfWeek + ', ' +  dayOfMonth + ' ' +  month + ' ' + year + ' ' + time + ' ' + tzOffset;
+        const dateTime = moment(dateTime_).utc().format();
+        const match = tagRef.match(/^refs\/tags\/(?<tag>[^\s]+)$/)
+        if (!match) {
+            throw new Error();
         }
-        yield tag;
+        yield {
+            name: match.groups!.tag,
+            commit: commit,
+            dateTime: dateTime,
+        }
     }
 }
 
@@ -191,8 +192,9 @@ function conf(): Conf {
         changelogFilePath: changelogFilePath,
         srcDirPath: path.dirname(changelogFilePath),
         pageSize: 100,
-        debug: !process.env.GITHUB_ACTION,
+        debug: true,
         ownerAndRepo: 'jackstr/seamly2d',
+        token: <string>(core.getInput('token') || process.env.GITHUB_TOKEN)
     };
 }
 
@@ -277,10 +279,11 @@ async function findTags(): Promise<Tag[]> {
 
     return tags;
 }
-
+/*
 async function findCommits(startTag: Tag, endTag: Tag) {
     return (await shInSrcDir('git log --pretty=format:"%H" ' + shArg(startTag.name) + '..' + shArg(endTag.name))).lines();
 }
+*/
 
 function issuesFilter(issue: Issue): boolean {
     const havingLabels = (issue: Issue) => {
@@ -295,30 +298,37 @@ function issuesFilter(issue: Issue): boolean {
     return havingLabels(issue);
 }
 
-async function findIssues(commits: any): Promise<Issue[]> {
+async function findIssues(startTag: Tag, endTag: Tag): Promise<Issue[]> {
     let issues: Issue[] = [];
-    if (fs.existsSync(__dirname + '/issues.json')) { // used for testing
+
+    if (conf().debug && fs.existsSync(__dirname + '/issues.json')) {
         issues = require(__dirname + '/issues.json').items;
     } else {
+        const startDate = startTag.dateTime;
+        const endDate = endTag.dateTime;
         const client = githubClient();
-        for (const sha1 of commits) {
-            const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} ${sha1} state:closed`;
-            // https://api.github.com/search/issues?q=repo:jackstr/seamly2d $sha1 type:issue state:closed
-            core.info('Search issues query: ' + q);
-            const issuesRes = await client.request('GET /search/issues', {
-                q: q,
-            })
-            if (issuesRes.data.total_count) {
-                for (const issue of issuesRes.data.items) {
-                    issues.push(issue);
+        // https://api.github.com/search/issues?q=repo:FashionFreedom/Seamly2D%20state:closed%20linked:pr%20closed:2020-07-30T13:38:42Z..2020-08-20T23:49:01Z
+        // https://docs.github.com/en/github/searching-for-information-on-github/searching-issues-and-pull-requests#search-by-when-an-issue-or-pull-request-was-closed
+        const q = `repo:${client.repoMeta.owner}/${client.repoMeta.repo} state:closed linked:pr closed:${startDate}..${endDate}`;
+        core.info('Search issues query: ' + q);
+        for await (const response of client.paginate.iterator("GET /search/issues", {
+            q: q,
+            per_page: conf().pageSize,
+        })) {
+            if (response.data) {
+                for (const item of response.data) {
+
+                    if (item.url) {
+                        issues.push(item);
+                    }
                 }
             }
         }
     }
 
+    core.info('Got ' + issues.length + ' issue(s) before filtering: [' + issues.map(issue => issue.number).join(', ') + ']');
     issues = issues.filter(issuesFilter);
-
-    core.info('Found ' + issues.length + ' issue(s): [' + issues.map(issue => issue.number).join(', ') + ']');
+    core.info('Got ' + issues.length + ' issue(s) after filtering: [' + issues.map(issue => issue.number).join(', ') + ']');
 
     return issues;
 }
@@ -328,8 +338,13 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
     if (!tags.length) {
         return false;
     }
-    tags.push({name: 'HEAD', commit: 'HEAD'});
+    tags.push({name: 'HEAD', commit: 'HEAD', dateTime: moment(moment.now()).utc().format()});
+    // Now must be at least 2 tags
     const pullReqParts: PullReqForChangelogPart[] = [];
+    const issues = await findIssues(tags[0], tags[tags.length - 1]);
+ 
+    d(issues.length);
+    /*
     for (let i = 1; i < tags.length; i++) {
         const tag = tags[i];
         const startAndEndTags: [Tag, Tag] = [tags[i - 1], tags[i]];
@@ -341,6 +356,7 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
         }
         pullReqParts.push(pullReqPart);
     }
+    */
     return {
         parts: pullReqParts.reverse()
     }
@@ -432,12 +448,13 @@ async function renderPullReqText(pullReq: PullReqForChangelog): Promise<PullReqF
 
 async function main() {
     try {
+        core.setSecret(conf().token);
         await shInSrcDir('git fetch --tags');
         let pullReq: PullReqForChangelog | false = await preparePullReq();
         if (false !== pullReq) {
             core.info('Modifying the Changelog file');
             pullReq = await renderPullReqText(pullReq);
-            updateChangelogFile(pullReq);
+            await updateChangelogFile(pullReq);
         } else {
             core.info('Ignoring modification of the Changelog file');
         }
@@ -455,4 +472,4 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 */
 
-main();
+main()
