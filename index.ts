@@ -1,19 +1,20 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github';
 import {RequestError} from '@octokit/request-error';
-
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {exec, ExecException} from "child_process";
 import {ReposListReleasesResponseData, SearchIssuesAndPullRequestsResponseData} from '@octokit/types'
 import * as readline from 'readline';
-import { promisify, inspect } from "util";
+import {promisify, inspect} from "util";
 import compareVersions from 'compare-versions';
 import moment from 'moment';
 
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
+
+type DateTime = string
 
 type Conf = {
     srcDirPath: Path
@@ -30,7 +31,7 @@ type Sha1 = string;
 type Tag = {
     name: string
     commit: Sha1
-    dateTime: string
+    dateTime: DateTime
     //commits?: Sha1[]
 };
 
@@ -339,24 +340,40 @@ async function preparePullReq(): Promise<PullReqForChangelog | false> {
         return false;
     }
     tags.push({name: 'HEAD', commit: 'HEAD', dateTime: moment(moment.now()).utc().format()});
-    // Now must be at least 2 tags
-    const pullReqParts: PullReqForChangelogPart[] = [];
+    // Now must be at least 2 tags: starting tag and HEAD
     const issues = await findIssues(tags[0], tags[tags.length - 1]);
- 
-    d(issues.length);
-    /*
+    const pullReqParts: PullReqForChangelogPart[] = [];
+
+    const issuesMap: {[closedAt: string]: Issue} = {};
+    for (const issue of issues) {
+        issuesMap[issue.closed_at] = issue;
+    }
+    const issueDates = Object.keys(issuesMap);
+
+    function findIssuesForTags(startTag: Tag, endTag: Tag): Issue[] {
+        const startDate = startTag.dateTime;
+        const endDate = endTag.dateTime;
+        const issuesForTags: Issue[] = [];
+        for (const issueDate of issueDates) {
+            if (issueDate >= startDate && issueDate <= endDate) {
+                issuesForTags.push(issuesMap[issueDate]);
+            }
+        }
+        return issuesForTags; 
+    }
     for (let i = 1; i < tags.length; i++) {
-        const tag = tags[i];
-        const startAndEndTags: [Tag, Tag] = [tags[i - 1], tags[i]];
-        const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
-        core.info('Found ' +  commits.length + ' commit(s) from ' + startAndEndTags[0].name + '..' + startAndEndTags[1].name + ': [' + commits.toString().replace(/,/g, ', ') + ']');
+        const startTag = tags[i - 1], endTag = tags[i];
+        const issues = findIssuesForTags(startTag, endTag);
         const pullReqPart = {
-            tags: startAndEndTags,
-            issues: await findIssues(commits)
+            tags: <[Tag, Tag]>[startTag, endTag],
+            issues: issues
         }
         pullReqParts.push(pullReqPart);
+        /*
+        const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
+        core.info('Found ' +  commits.length + ' commit(s) from ' + startAndEndTags[0].name + '..' + startAndEndTags[1].name + ': [' + commits.toString().replace(/,/g, ', ') + ']');
+        */
     }
-    */
     return {
         parts: pullReqParts.reverse()
     }
@@ -367,9 +384,9 @@ async function updateChangelogFile(pullReq: PullReqForChangelog) {
     let newText = '';
     if (fs.existsSync(changelogFilePath)) {
         const oldText = await readFile(changelogFilePath, 'utf8');
-        let newText = pullReq.text!.trim();
+        newText = pullReq.text!.trim();
         if (newText.length) {
-            newText + "\n\n" + oldText;
+            newText = newText + "\n\n" + oldText;
         }
     } else {
         newText = pullReq.text!.trim();

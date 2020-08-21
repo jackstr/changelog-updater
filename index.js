@@ -360,23 +360,38 @@ async function preparePullReq() {
         return false;
     }
     tags.push({ name: 'HEAD', commit: 'HEAD', dateTime: moment_1.default(moment_1.default.now()).utc().format() });
-    // Now must be at least 2 tags
-    const pullReqParts = [];
+    // Now must be at least 2 tags: starting tag and HEAD
     const issues = await findIssues(tags[0], tags[tags.length - 1]);
-    d(issues.length);
-    /*
+    const pullReqParts = [];
+    const issuesMap = {};
+    for (const issue of issues) {
+        issuesMap[issue.closed_at] = issue;
+    }
+    const issueDates = Object.keys(issuesMap);
+    function findIssuesForTags(startTag, endTag) {
+        const startDate = startTag.dateTime;
+        const endDate = endTag.dateTime;
+        const issuesForTags = [];
+        for (const issueDate of issueDates) {
+            if (issueDate >= startDate && issueDate <= endDate) {
+                issuesForTags.push(issuesMap[issueDate]);
+            }
+        }
+        return issuesForTags;
+    }
     for (let i = 1; i < tags.length; i++) {
-        const tag = tags[i];
-        const startAndEndTags: [Tag, Tag] = [tags[i - 1], tags[i]];
+        const startTag = tags[i - 1], endTag = tags[i];
+        const issues = findIssuesForTags(startTag, endTag);
+        const pullReqPart = {
+            tags: [startTag, endTag],
+            issues: issues
+        };
+        pullReqParts.push(pullReqPart);
+        /*
         const commits = Array.from(await findCommits(startAndEndTags[0], startAndEndTags[1]));
         core.info('Found ' +  commits.length + ' commit(s) from ' + startAndEndTags[0].name + '..' + startAndEndTags[1].name + ': [' + commits.toString().replace(/,/g, ', ') + ']');
-        const pullReqPart = {
-            tags: startAndEndTags,
-            issues: await findIssues(commits)
-        }
-        pullReqParts.push(pullReqPart);
+        */
     }
-    */
     return {
         parts: pullReqParts.reverse()
     };
@@ -386,9 +401,9 @@ async function updateChangelogFile(pullReq) {
     let newText = '';
     if (fs.existsSync(changelogFilePath)) {
         const oldText = await readFile(changelogFilePath, 'utf8');
-        let newText = pullReq.text.trim();
+        newText = pullReq.text.trim();
         if (newText.length) {
-            newText + "\n\n" + oldText;
+            newText = newText + "\n\n" + oldText;
         }
     }
     else {
