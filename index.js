@@ -14,7 +14,7 @@ var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (
 var __importStar = (this && this.__importStar) || function (mod) {
     if (mod && mod.__esModule) return mod;
     var result = {};
-    if (mod != null) for (var k in mod) if (k !== "default" && Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
     __setModuleDefault(result, mod);
     return result;
 };
@@ -50,55 +50,9 @@ const readline = __importStar(require("readline"));
 const util_1 = require("util");
 const compare_versions_1 = __importDefault(require("compare-versions"));
 const moment_1 = __importDefault(require("moment"));
+const lib = __importStar(require("./lib"));
 const writeFile = util_1.promisify(fs.writeFile);
 const readFile = util_1.promisify(fs.readFile);
-class ValObj {
-    constructor(val) {
-        this.val = val;
-    }
-    ;
-}
-class ChangelogHeaderTag extends ValObj {
-}
-class VerHeaderTag extends ChangelogHeaderTag {
-    static match(s) {
-        return s.match(/^#+\s+Version\s+v?(?<tag>[^\s]+)/i);
-    }
-    tag() {
-        return 'v' + this.val;
-    }
-}
-class WeeklyHeaderTag extends ChangelogHeaderTag {
-    static match(s) {
-        return s.match(/^##\s+Weekly\s+(?<tag>[^\s]+)/i);
-    }
-    tag() {
-        // ## Weekly 20200720 (2020-07-20 16:55:47 UTC)
-        return 'weekly-' + this.val;
-    }
-}
-function d(...args) {
-    for (const arg of args) {
-        console.log(arg);
-    }
-    const stack = new Error().stack;
-    if (stack) {
-        const chunks = stack.split(/^    at /mg).slice(2);
-        console.log("Backtrace:\n" + chunks.join('').replace(/^\s*/mg, '  '));
-    }
-    process.exit(0);
-}
-// Taken from TypeScript sources, https://github.com/microsoft/TypeScript
-function memoize(callback) {
-    let value;
-    return () => {
-        if (callback) {
-            value = callback();
-            callback = undefined;
-        }
-        return value;
-    };
-}
 class ShRes {
     constructor(stdOut, stdErr, error) {
         this.stdOut = stdOut;
@@ -159,7 +113,7 @@ function releaseIt() {
     });
 }
 function githubClient() {
-    const client = memoize(function () {
+    const client = lib.memoize(function () {
         const token = conf().token;
         const octokit = github.getOctokit(token);
         return Object.assign(octokit, { repoMeta: github.context.repo });
@@ -205,11 +159,9 @@ async function processFileLines(filePath, fn) {
     const fileStream = fs.createReadStream(filePath);
     const rl = readline.createInterface({
         input: fileStream,
-        crlfDelay: Infinity
+        crlfDelay: Infinity,
     });
     try {
-        // Note: we use the crlfDelay option to recognize all instances of CR LF
-        // ('\r\n') in input.txt as a single line break.
         for (var rl_1 = __asyncValues(rl), rl_1_1; rl_1_1 = await rl_1.next(), !rl_1_1.done;) {
             const line = rl_1_1.value;
             let res = fn(line);
@@ -231,19 +183,15 @@ function tagsFilter(tag) {
 }
 async function findTags() {
     var e_3, _a;
-    // NB: Changelog file must exist
     const tagFromFile = await processFileLines(conf().changelogFilePath, (line) => {
         if (!line.length) {
             return false;
         }
-        // Old, legacy format
-        let match = VerHeaderTag.match(line);
-        if (match) {
-            return new VerHeaderTag(match.groups.tag);
+        if (lib.SemverHeader.match(line)) {
+            return new lib.SemverHeader(line);
         }
-        match = WeeklyHeaderTag.match(line);
-        if (match) {
-            return new WeeklyHeaderTag(match.groups.tag);
+        if (lib.WeeklyVerHeader.match(line)) {
+            return new lib.WeeklyVerHeader(line);
         }
         return false;
     });
@@ -251,7 +199,7 @@ async function findTags() {
         if (tag.name === tagFromFile.tag()) {
             return true;
         }
-        if (tagFromFile instanceof VerHeaderTag) {
+        if (tagFromFile instanceof lib.SemverHeader) {
             try {
                 return compare_versions_1.default.compare(tag.name, tagFromFile.tag(), '>=');
             }
@@ -259,7 +207,7 @@ async function findTags() {
                 return false;
             }
         }
-        if (tagFromFile instanceof WeeklyHeaderTag && tag.name.match(/^weekly-\d+$/)) {
+        if (tagFromFile instanceof lib.WeeklyVerHeader && tag.name.match(/^weekly-\d+$/)) {
             return tag.name >= tagFromFile.tag();
         }
         return false;

@@ -10,6 +10,6 @@ readonly baseDirPath=$(realpath -e $SCRIPT_DIR_PATH/..)
 
 pushd $baseDirPath > /dev/null
 
-tsc --build --watch
+tsc --build
 
 popd > /dev/null

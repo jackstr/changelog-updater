@@ -4,29 +4,20 @@ import {RequestError} from '@octokit/request-error';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import {} from "./lib"
 import {exec, ExecException} from "child_process";
 import {ReposListReleasesResponseData, SearchIssuesAndPullRequestsResponseData} from '@octokit/types'
 import * as readline from 'readline';
 import {promisify, inspect} from "util";
 import compareVersions from 'compare-versions';
 import moment from 'moment';
+import * as lib from './lib';
 
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
 type DateTime = string
 
-type Conf = {
-    srcDirPath: Path
-    changelogFilePath: Path
-    pageSize: number
-    debug: boolean
-    ownerAndRepo: string
-    token: string
-}
-
-type Path = string;
-type TagName = string;
 type Sha1 = string;
 type Tag = {
     name: string
@@ -45,60 +36,6 @@ type Issue = SearchIssuesAndPullRequestsResponseData['items'][0];
 type Release = ReposListReleasesResponseData[0];
 
 type GitHubClient = ReturnType<typeof github.getOctokit> & {repoMeta: typeof github.context.repo};
-
-class ValObj<TVal> {
-    constructor(public readonly val: TVal) {
-    };
-}
-
-abstract class ChangelogHeaderTag extends ValObj<string> {
-    public abstract tag(): TagName;
-}
-
-class VerHeaderTag extends ChangelogHeaderTag {
-    public static match(s: string): null | RegExpMatchArray {
-        return s.match(/^#+\s+Version\s+v?(?<tag>[^\s]+)/i)
-    }
-
-    public tag(): TagName {
-        return 'v' + this.val;
-    }
-}
-
-class WeeklyHeaderTag extends ChangelogHeaderTag {
-    public static match(s: string): null | RegExpMatchArray {
-        return s.match(/^##\s+Weekly\s+(?<tag>[^\s]+)/i);
-    }
-
-    public tag(): TagName {
-        // ## Weekly 20200720 (2020-07-20 16:55:47 UTC)
-        return 'weekly-' + this.val;
-    }
-}
-
-function d(...args: any): never {
-    for (const arg of args) {
-        console.log(arg);
-    }
-    const stack = new Error().stack
-    if (stack) {
-        const chunks = stack.split(/^    at /mg).slice(2)
-        console.log("Backtrace:\n" + chunks.join('').replace(/^\s*/mg, '  '));
-    }
-    process.exit(0);
-}
-
-// Taken from TypeScript sources, https://github.com/microsoft/TypeScript
-function memoize<TRes>(callback: () => TRes): () => TRes {
-    let value: TRes;
-    return () => {
-        if (callback) {
-            value = callback();
-            callback = undefined!;
-        }
-        return value;
-    };
-}
 
 class ShRes {
     public constructor(
@@ -155,7 +92,7 @@ async function* releaseIt() {
 }
 
 function githubClient(): GitHubClient {
-    const client = memoize<GitHubClient>(function () {
+    const client = lib.memoize<GitHubClient>(function () {
         const token = conf().token;
         const octokit = github.getOctokit(token);
         return Object.assign(octokit, {repoMeta: github.context.repo});
@@ -187,7 +124,7 @@ async function shInSrcDir(cmd: string): Promise<ShRes> {
     return sh('cd ' + shArg(conf().srcDirPath) + '; ' + cmd);
 }
 
-function conf(): Conf {
+function conf(): lib.Conf {
     const changelogFilePath = process.cwd() + '/CHANGELOG.md';
     return {
         changelogFilePath: changelogFilePath,
@@ -199,14 +136,12 @@ function conf(): Conf {
     };
 }
 
-async function processFileLines<TRes>(filePath: Path, fn: (s: string) => TRes): Promise<any> {
+async function processFileLines<TRes>(filePath: lib.Path, fn: (s: string) => TRes): Promise<any> {
     const fileStream = fs.createReadStream(filePath);
     const rl = readline.createInterface({
         input: fileStream,
-        crlfDelay: Infinity
+        crlfDelay: Infinity, // NB: we use the crlfDelay option to recognize all instances of CR LF ('\r\n') in input.txt as a single line break.
     });
-    // Note: we use the crlfDelay option to recognize all instances of CR LF
-    // ('\r\n') in input.txt as a single line break.
     for await (const line of rl) {
         let res = fn(line);
         if (res !== undefined && <Exclude<undefined, any>>res !== false) {
@@ -220,20 +155,16 @@ function tagsFilter(tag: Tag): boolean {
 }
 
 async function findTags(): Promise<Tag[]> {
-    // NB: Changelog file must exist
-    const tagFromFile = await processFileLines<false | ChangelogHeaderTag | undefined>(conf().changelogFilePath, (line) => {
+    const tagFromFile = await processFileLines<false | lib.ChangelogHeader | undefined>(conf().changelogFilePath, (line) => {
         if (!line.length) {
             return false;
         }
-        // Old, legacy format
-        let match = VerHeaderTag.match(line);
-        if (match) {
-            return new VerHeaderTag(match.groups!.tag);
+        if (lib.SemverHeader.match(line)) {
+            return new lib.SemverHeader(line);
         }
 
-        match = WeeklyHeaderTag.match(line);
-        if (match) {
-            return new WeeklyHeaderTag(match.groups!.tag);
+        if (lib.WeeklyVerHeader.match(line)) {
+            return new lib.WeeklyVerHeader(line);
         }
 
         return false;
@@ -243,14 +174,14 @@ async function findTags(): Promise<Tag[]> {
         if (tag.name === tagFromFile.tag()) {
             return true;
         }
-        if (tagFromFile instanceof VerHeaderTag) {
+        if (tagFromFile instanceof lib.SemverHeader) {
             try {
                 return compareVersions.compare(tag.name, tagFromFile.tag(), '>=');
             } catch (error) {
                 return false;
             }
         }
-        if (tagFromFile instanceof WeeklyHeaderTag && tag.name.match(/^weekly-\d+$/)) {
+        if (tagFromFile instanceof lib.WeeklyVerHeader && tag.name.match(/^weekly-\d+$/)) {
             return tag.name >= tagFromFile.tag();
         }
 

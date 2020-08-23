@@ -13,7 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      # Make changes in the source code using `update-changlog`.
       - uses: jackstr/update-changelog@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Send changes as pull request using `create-pull-request`.
+      - uses: jackstr/create-pull-request@master
+        with:
+          branch: update-changelog
+          branch-suffix: timestamp
+          title: Update CHANGELOG.md
+          body: |
+            Updates CHANGELOG with latest versions.
+
+            This is automatically generated pull request.
 ```
 
 Run the workflow:
